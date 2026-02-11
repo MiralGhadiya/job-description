@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 import pickle
 from pathlib import Path
+from app.embeddings import embedding_model
 from sentence_transformers import SentenceTransformer
+
 
 DATA_DIR = Path("data")
 INDEX_PATH = DATA_DIR / "projects.faiss"
@@ -19,7 +21,7 @@ PROJECT_SHEETS = {
 
 class FaissProjectStore:
     def __init__(self):
-        self.model = SentenceTransformer(EMBED_MODEL)
+        self.model = embedding_model
         self.index = None
         self.texts = []
         self.metadata = []

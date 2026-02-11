@@ -1,12 +1,16 @@
 # app/main.py
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from app.config import groq_client
+# from app.config import gemini_model
 
 from app.vectorstore import FaissProjectStore
 from app.review_store import FaissReviewStore
+from app.resume_store import FaissResumeStore
 
 from app.llm_core import generate_upwork_proposal
 from app.schemas import UpworkRequest, UpworkResponse
+
 
 
 app = FastAPI(
@@ -14,34 +18,60 @@ app = FastAPI(
     version="0.1.0"
 )
 
-review_store = FaissReviewStore()
-project_store = FaissProjectStore()
+review_store = None
+project_store = None
+resume_store = None
 
-review_store.load()
-project_store.load()
+@app.on_event("startup")
+def startup_event():
+    global review_store, project_store, resume_store
 
-@app.post("/generate/upwork", response_model=UpworkResponse)
+    review_store = FaissReviewStore()
+    project_store = FaissProjectStore()
+    resume_store = FaissResumeStore()
+
+    review_store.load()
+    project_store.load()
+    resume_store.load()
+
+    print("FAISS stores loaded successfully.")
+
+
+@app.post("/generate/upwork", response_class=PlainTextResponse)
 def generate_upwork(req: UpworkRequest):
     
     projects_text = project_store.search(req.requirement, top_k=3)
-    review_text = review_store.search(req.requirement, top_k=1)
+    review_text = review_store.search(req.requirement, top_k=2)
+    resume_data = resume_store.search(req.requirement) 
+    
+    resume_text = resume_data["text"]
     
     combined_text = f"""
-        Relevant projects:
+        Candidate Resume:
+        {resume_text}
+
+        Relevant Projects:
         {projects_text}
-        
-        Relevant client feedback:
+
+        Relevant Client Feedback:
         {review_text}
-        """
+    """
 
     proposal = generate_upwork_proposal(
         client=groq_client,
         requirement=req.requirement,
-        projects_text=combined_text,
+        projects_text=combined_text
     )
-    return {"proposal": proposal}
-
-
+    
+    # proposal = generate_upwork_proposal(
+    #     model=gemini_model,
+    #     requirement=req.requirement,
+    #     projects_text=combined_text
+    # )
+    
+    return proposal
+ 
+     
 @app.post("/debug/search")
 def debug_search(payload: dict):
     query = payload.get("query")

@@ -81,3 +81,5 @@ alembic/
 
 alembic/__pycache__/
 *.pyc
+
+resume

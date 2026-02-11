@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import pickle
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+from app.embeddings import embedding_model
 
 DATA_DIR = Path("data")
 INDEX_PATH = DATA_DIR / "reviews.faiss"
@@ -13,7 +13,7 @@ EMBED_MODEL = "all-MiniLM-L6-v2"
 
 class FaissReviewStore:
     def __init__(self):
-        self.model = SentenceTransformer(EMBED_MODEL)
+        self.model = embedding_model
         self.index = None
         self.texts = []
         self.metadata = []

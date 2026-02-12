@@ -83,3 +83,5 @@ alembic/__pycache__/
 *.pyc
 
 resume
+
+example_requests

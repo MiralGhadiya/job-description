@@ -15,11 +15,12 @@ def generate_upwork_proposal(
 
         Then start the proposal exactly with:
 
-        Hi, I'm <Full Name>.
+        Hi, I'm <Full Name>,
 
         Rules:
         - Extract the real candidate name from the resume.
         - Do NOT use file names.
+        - Camel case the name properly with correct spacing between words.
         - Do NOT invent a name.
         - Output ONLY the proposal.
         - Start immediately with "Hi, I'm <Full Name>."
@@ -72,7 +73,7 @@ def generate_upwork_proposal(
         3. Architecture and execution plan (with tradeoffs).
         4. Confident closing.
 
-        Aim for 450-600 words.
+        Aim for 350-500 words.
         Make it feel like a senior engineer who has solved this in production.
     """
 
@@ -82,7 +83,7 @@ def generate_upwork_proposal(
             {"role": "system", "content": "You are an expert freelance software developer."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.45,
+        temperature=0.5,
         max_tokens=800,
     )
 

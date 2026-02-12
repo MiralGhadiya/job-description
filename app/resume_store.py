@@ -16,6 +16,15 @@ class FaissResumeStore:
         self.index = None
         self.texts = []
         self.metadata = []
+        
+    def get_by_name(self, name: str):
+        for text, meta in zip(self.texts, self.metadata):
+            if meta["name"].lower() == name.lower():
+                return {
+                    "text": text,
+                    "metadata": meta,
+                }
+        return None
 
     # -------- BUILD FROM FOLDER --------
     def build_from_folder(self):

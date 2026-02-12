@@ -42,9 +42,20 @@ def generate_upwork(req: UpworkRequest):
     
     projects_text = project_store.search(req.requirement, top_k=3)
     review_text = review_store.search(req.requirement, top_k=2)
-    resume_data = resume_store.search(req.requirement) 
     
-    resume_text = resume_data["text"]
+    if req.resume_name:
+        resume_data = resume_store.get_by_name(req.resume_name)
+        
+        if not resume_data:
+            return PlainTextResponse(
+                f"Resume with name '{req.resume_name}' not found.",
+                status_code=404
+            )
+    else:
+        resume_data = resume_store.search(req.requirement)
+        
+    resume_text = resume_data['text']
+    
     
     combined_text = f"""
         Candidate Resume:
@@ -82,3 +93,10 @@ def debug_search(payload: dict):
 
     results = project_store.search_debug(query, top_k=top_k)
     return {"results": results}
+
+
+@app.get("/resumes")
+def get_resumes():
+    return {
+        "resumes" : [meta["name"] for meta in resume_store.metadata]
+    }

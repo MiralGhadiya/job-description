@@ -61,10 +61,10 @@ def generate_upwork(req: UpworkRequest):
         Candidate Resume:
         {resume_text}
 
-        Relevant Projects:
+        Structured Project Data:
         {projects_text}
 
-        Relevant Client Feedback:
+        Client Feedback Data:
         {review_text}
     """
 

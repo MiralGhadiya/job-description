@@ -12,7 +12,6 @@ def generate_upwork_proposal(
         The resume content is included below.
 
         First, extract the candidate's full name from the resume.
-
         Then start the proposal exactly with:
 
         Hi, I'm <Full Name>,
@@ -29,8 +28,7 @@ def generate_upwork_proposal(
         - Output ONLY the cover letter content.
         - Start immediately with the first sentence.
         - Start with like I've reviewed your requirement and am confident I can solve it.
-        - Write in 5-8 clearly separated paragraphs and points.
-        - Each paragraph should contain 3-6 sentences.
+        - Write in 5-7 clearly separated paragraphs and points.
         - Maintain natural spacing between paragraphs.
         - The proposal must feel thoughtful, specific, and written for this exact job.
         - Output ONLY the cover letter content.
@@ -38,9 +36,19 @@ def generate_upwork_proposal(
         Client Requirement:
         {requirement}
 
-        Relevant Past Projects:
+        Past Projects:
         {projects_text}
 
+        Use the above structured project information to extract:
+        - Title
+        - Industry
+        - Tech Stack
+        - Key Challenge
+        - Implementation
+        - Business Impact
+
+        Only reference projects relevant to the client's requirement.
+        
         Tone:
         Professional, confident, calm, and experienced.
         Human and conversational, but sharp.
@@ -49,18 +57,33 @@ def generate_upwork_proposal(
         What to Achieve:
         - Demonstrate deep understanding of the real issue.
         - Show ownership and strategic thinking.
+        - Do not bluff about experience.
         - Explain technical reasoning clearly.
         - Highlight real-world production experience.
         - Make the client feel you've solved this exact problem before.
 
         Guidelines:
         - Avoid fluff, but allow natural elaboration where helpful.
-        - Mention 1-2 highly relevant past projects with meaningful detail.
-        - Include one short client feedback sentence naturally if relevant.
+        - Select ONLY 1-2 most relevant projects from the provided list.
+        - Don't metion like Another relevant project is... Just seamlessly integrate the project details as proof of experience.
+        - When referencing a project, format it exactly like this:
+
+        Project:
+        • **<Project Name>** — <Industry>
+        - **Category**: <Category>
+        - **Tech Stack**: <Tech Stack>
+        - **Problem**: <What needed to be solved>
+        - **Implementation**: <How it was built>
+        - **Impact**: <Result / scale / performance improvement>
+
+        - Use clean bullet formatting for project sections.
+        - Do NOT dump raw text.
+        - Integrate industry and tech stack naturally.
+        - Include one short client feedback sentence if relevant.
         - End with one confident, friendly closing sentence.
 
         If Bug Fix / Production Issue:
-        Write separate paragraphs covering:
+        Write separate bullets covering:
         1. Immediate confident opening.
         2. App / Scenario (context, tech stack, users, scale).
         3. Root Cause (what was technically wrong and why).
@@ -83,7 +106,7 @@ def generate_upwork_proposal(
             {"role": "system", "content": "You are an expert freelance software developer."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.5,
+        temperature=0.45,
         max_tokens=800,
     )
 

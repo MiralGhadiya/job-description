@@ -1,17 +1,23 @@
 import streamlit as st
 import requests
 
+# ==============================
+# 🔗 API Configuration
+# ==============================
+
 API_BASE = "https://interstreet-elza-icy.ngrok-free.dev"
 GENERATE_URL = f"{API_BASE}/generate/upwork"
+FOLLOWUP_URL = f"{API_BASE}/generate/upwork/followup"
 RESUME_URL = f"{API_BASE}/resumes"
 
 st.set_page_config(page_title="Upwork Proposal Bot", layout="centered")
 
 st.title("🤖 Upwork Proposal Generator")
 
-# --------------------------------------------------
-# Fetch Resume List (Cached)
-# --------------------------------------------------
+# ==============================
+# 📥 Fetch Available Resumes
+# ==============================
+
 @st.cache_data(ttl=60)
 def fetch_resumes():
     response = requests.get(RESUME_URL, timeout=10)
@@ -19,24 +25,28 @@ def fetch_resumes():
     return response.json().get("resumes", [])
 
 resume_list = fetch_resumes()
-
-
-# Add Auto option
 resume_options = ["Auto Select (Semantic Search)"] + resume_list
 
-# --------------------------------------------------
-# Persist Resume Selection Across Reruns
-# --------------------------------------------------
+# ==============================
+# 🧠 Session State Setup
+# ==============================
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
+
 if "selected_resume" not in st.session_state:
     st.session_state.selected_resume = "Auto Select (Semantic Search)"
 
-# If resume list changes and stored resume no longer exists
 if st.session_state.selected_resume not in resume_options:
     st.session_state.selected_resume = "Auto Select (Semantic Search)"
 
-# --------------------------------------------------
-# Sidebar Settings
-# --------------------------------------------------
+# ==============================
+# ⚙️ Sidebar Settings
+# ==============================
+
 with st.sidebar:
     st.header("⚙️ Settings")
 
@@ -46,6 +56,8 @@ with st.sidebar:
         index=resume_options.index(st.session_state.selected_resume)
     )
 
+    st.session_state.selected_resume = selected_resume
+
     st.markdown("---")
 
     if selected_resume == "Auto Select (Semantic Search)":
@@ -53,29 +65,32 @@ with st.sidebar:
     else:
         st.success(f"Using resume: {selected_resume}")
 
-# Save updated selection
-st.session_state.selected_resume = selected_resume
+    st.markdown("---")
+
+    if st.button("🔄 New Application"):
+        st.session_state.session_id = None
+        st.session_state.messages = []
+        st.rerun()
 
 st.divider()
 
-# --------------------------------------------------
-# Chat History State
-# --------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ==============================
+# 💬 Display Chat History
+# ==============================
 
-# Display previous messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --------------------------------------------------
-# Chat Input
-# --------------------------------------------------
-user_input = st.chat_input("Paste the job description here...")
+# ==============================
+# 📝 User Input
+# ==============================
+
+user_input = st.chat_input("Paste the job description or ask follow-up...")
 
 if user_input:
-    # Store user message
+
+    # Display user message
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
@@ -84,38 +99,73 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Generate Proposal
-    with st.spinner("Generating proposal..."):
+    # ===================================
+    # 🔥 FOLLOW-UP MODE
+    # ===================================
+    if st.session_state.session_id:
 
-        payload = {
-            "requirement": user_input
-        }
+        with st.spinner("Generating answer..."):
+            try:
+                response = requests.post(
+                    FOLLOWUP_URL,
+                    json={
+                        "session_id": st.session_state.session_id,
+                        "question": user_input
+                    },
+                    timeout=60
+                )
 
-        # Add resume only if manually selected
-        if selected_resume != "Auto Select (Semantic Search)":
-            payload["resume_name"] = selected_resume
+                if response.status_code == 200:
+                    answer = response.json()["answer"]
+                else:
+                    answer = f"❌ Error: {response.status_code}"
 
-        try:
-            response = requests.post(
-                GENERATE_URL,
-                json=payload,
-                timeout=60
-            )
+            except Exception:
+                answer = "❌ Unable to connect to backend."
 
-            if response.status_code == 200:
-                proposal = response.text
-            else:
-                proposal = f"❌ Error: {response.status_code}"
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
 
-        except Exception:
-            proposal = "❌ Unable to connect to backend."
+        with st.chat_message("assistant"):
+            st.markdown(answer)
 
-    # Store assistant message
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": proposal
-    })
+    # ===================================
+    # 🚀 INITIAL PROPOSAL MODE
+    # ===================================
+    else:
 
-    with st.chat_message("assistant"):
-        st.markdown(proposal)
-        st.code(proposal, language="text")
+        with st.spinner("Generating proposal..."):
+
+            payload = {
+                "requirement": user_input
+            }
+
+            if selected_resume != "Auto Select (Semantic Search)":
+                payload["resume_name"] = selected_resume
+
+            try:
+                response = requests.post(
+                    GENERATE_URL,
+                    json=payload,
+                    timeout=60
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    proposal = data["proposal"]
+                    st.session_state.session_id = data["session_id"]
+                else:
+                    proposal = f"❌ Error: {response.status_code}"
+
+            except Exception:
+                proposal = "❌ Unable to connect to backend."
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": proposal
+        })
+
+        with st.chat_message("assistant"):
+            st.markdown(proposal)

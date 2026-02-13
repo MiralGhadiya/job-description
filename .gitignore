@@ -78,6 +78,7 @@ evenmore own portfolio.xlsx
 t
 
 alembic/
+alembic.ini
 
 alembic/__pycache__/
 *.pyc
@@ -85,3 +86,4 @@ alembic/__pycache__/
 resume
 
 example_requests
+example_follow-ups

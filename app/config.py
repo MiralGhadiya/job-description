@@ -12,6 +12,12 @@ if not GROQ_API_KEY:
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL not found in .env")
+
+
 # # app/config.py
 # import os
 # from dotenv import load_dotenv

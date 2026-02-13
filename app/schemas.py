@@ -8,3 +8,10 @@ class UpworkRequest(BaseModel):
     
 class UpworkResponse(BaseModel):
     proposal: str
+
+class FollowupRequest(BaseModel):
+    session_id: str
+    question: str
+
+class FollowupResponse(BaseModel):
+    answer: str

@@ -7,7 +7,7 @@ def generate_upwork_proposal(
     projects_text: str,
 ) -> str:
     prompt = f"""
-        You are a senior freelance software developer writing a real Upwork cover letter.
+        You are a senior software developer writing a real Upwork cover letter.
         
         The resume content is included below.
 
@@ -18,6 +18,7 @@ def generate_upwork_proposal(
 
         Rules:
         - Extract the real candidate name from the resume.
+        - Tell according to client's requirement for freelace or full-time job.
         - Do NOT use file names.
         - Camel case the name properly with correct spacing between words.
         - Do NOT invent a name.
@@ -32,7 +33,7 @@ def generate_upwork_proposal(
         - Maintain natural spacing between paragraphs.
         - The proposal must feel thoughtful, specific, and written for this exact job.
         - Output ONLY the cover letter content.
-        
+                
         Client Requirement:
         {requirement}
 
@@ -57,7 +58,7 @@ def generate_upwork_proposal(
         What to Achieve:
         - Demonstrate deep understanding of the real issue.
         - Show ownership and strategic thinking.
-        - Do not bluff about experience.
+        - Do not bluff about work experience.
         - Explain technical reasoning clearly.
         - Highlight real-world production experience.
         - Make the client feel you've solved this exact problem before.
@@ -108,6 +109,52 @@ def generate_upwork_proposal(
         ],
         temperature=0.45,
         max_tokens=800,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+def generate_followup_answer(
+    client: Groq,
+    requirement: str,
+    resume_text: str,
+    proposal_text: str,
+    question: str,
+) -> str:
+
+    prompt = f"""
+        You are a senior software developer answering a follow-up screening question on Upwork.
+
+        Original Client Requirement:
+        {requirement}
+
+        Original Proposal:
+        {proposal_text}
+
+        Resume:
+        {resume_text}
+
+        Screening Question:
+        {question}
+
+        Rules:
+        - Keep answer between 4-5 lines.
+        - Stay aligned with the tone of the proposal.
+        - Do not contradict earlier claims.
+        - Be confident, specific, and natural.
+        - No fluff.
+        - No fluff about work experience. Only speak to the question.
+        - Output ONLY the answer text.
+    """
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "You are an expert software developer."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.4,
+        max_tokens=400,
     )
 
     return response.choices[0].message.content.strip()

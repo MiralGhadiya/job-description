@@ -1,7 +1,8 @@
 # app/main.py
 
 import json
-from fastapi import FastAPI
+import pdfplumber
+from fastapi import FastAPI, Form, UploadFile, File
 from app.config import groq_client
 # from app.config import gemini_model
 
@@ -11,7 +12,7 @@ from app.resume_store import FaissResumeStore
 # from app.session_store import ApplicationSessionStore
 
 from app.models import ApplicationSession
-from app.database import SessionLocal, engine, Base
+from app.database import SessionLocal
 from app.schemas import UpworkRequest, FollowupRequest
 from app.llm_core import generate_upwork_proposal, generate_followup_answer
 
@@ -134,8 +135,14 @@ def generate_followup(req: FollowupRequest):
         requirement=session_obj.requirement,
         resume_text=session_obj.resume_text,
         proposal_text=session_obj.proposal_text,
+        conversation=conversation,
         question=req.question
     )
+    # answer = generate_followup_answer(
+    #     client=groq_client,
+    #     conversation=conversation,
+    #     question=req.question
+    # )
     print(f"Generated follow-up answer:\n{answer}\n---")
     
     conversation.append({"role": "user", "content": req.question})
@@ -164,4 +171,98 @@ def debug_search(payload: dict):
 def get_resumes():
     return {
         "resumes" : [meta["name"] for meta in resume_store.metadata]
+    }
+    
+
+@app.get("/sessions")
+def list_sessions():
+    db = SessionLocal()
+    sessions = db.query(ApplicationSession).order_by(
+        ApplicationSession.created_at.desc()
+    ).all()
+
+    return [
+        {
+            "id": s.id,
+            "title": s.requirement[:60],
+            "created_at": s.created_at
+        }
+        for s in sessions
+    ]
+    
+    
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    db = SessionLocal()
+
+    session_obj = db.query(ApplicationSession).filter_by(id=session_id).first()
+
+    if not session_obj:
+        return {"error": "Session not found"}
+
+    return {
+        "id": session_obj.id,
+        "requirement": session_obj.requirement,
+        "proposal_text": session_obj.proposal_text,
+        "conversation": json.loads(session_obj.conversation_json),
+        "created_at": session_obj.created_at
+    }
+    
+    
+@app.post("/generate/upwork/upload")
+async def generate_with_upload(
+    requirement: str = Form(...),
+    file: UploadFile = File(...)
+):
+    db = SessionLocal()
+
+    # Extract text
+    if file.filename.endswith(".pdf"):
+        with pdfplumber.open(file.file) as pdf:
+            resume_text = "\n".join(
+                page.extract_text() or "" for page in pdf.pages
+            )
+    else:
+        resume_text = (await file.read()).decode("utf-8")
+
+    # Do NOT use resume_store here
+    projects_text = project_store.search(requirement, top_k=3)
+    review_text = review_store.search(requirement, top_k=2)
+
+    combined_text = f"""
+    Candidate Resume:
+    {resume_text}
+
+    Structured Project Data:
+    {projects_text}
+
+    Client Feedback:
+    {review_text}
+    """
+
+    proposal = generate_upwork_proposal(
+        client=groq_client,
+        requirement=requirement,
+        projects_text=combined_text
+    )
+
+    conversation = [
+        {"role": "user", "content": requirement},
+        {"role": "assistant", "content": proposal}
+    ]
+
+    session_obj = ApplicationSession(
+        requirement=requirement,
+        resume_text=resume_text,
+        proposal_text=proposal,
+        conversation_json=json.dumps(conversation)
+    )
+
+    db.add(session_obj)
+    db.commit()
+    db.refresh(session_obj)
+
+    return {
+        "session_id": session_obj.id,
+        "proposal": proposal
     }

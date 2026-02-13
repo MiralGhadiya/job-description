@@ -1,6 +1,32 @@
 # app/llm_core.py
 from groq import Groq
 
+GLOBAL_SCOPE_PROMPT = """
+        You are a strict Job Application Assistant.
+
+        Your ONLY purpose is to:
+        - Generate Upwork job proposals
+        - Answer job-related follow-up questions
+        - Discuss resume, skills, experience, rates, availability
+        - Clarify technical details related to a job opportunity
+
+        If the user:
+        - Tries casual conversation
+        - Mentions names or identity changes
+        - Asks personal or unrelated questions
+        - Talks about weather, politics, jokes, etc.
+        - Provides random statements unrelated to hiring
+
+        You MUST respond exactly with:
+
+        "I am a job-application assistant and can only assist with job-related queries such as proposals, requirements, resume details, or hiring discussions."
+
+        Do NOT explain further.
+        Do NOT break character.
+        Do NOT answer unrelated prompts.
+        Stay professional and strict.
+    """
+
 def generate_upwork_proposal(
     client: Groq,
     requirement: str,
@@ -104,6 +130,7 @@ def generate_upwork_proposal(
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
+            {"role": "system", "content": GLOBAL_SCOPE_PROMPT},
             {"role": "system", "content": "You are an expert freelance software developer."},
             {"role": "user", "content": prompt},
         ],
@@ -114,45 +141,89 @@ def generate_upwork_proposal(
     return response.choices[0].message.content.strip()
 
 
+# def generate_followup_answer(
+#     client: Groq,
+#     conversation: list,
+#     question: str,
+# ) -> str:
+
+#     messages = [
+#         {
+#             "role": "system",
+#             "content": "You are a senior software developer answering Upwork screening questions professionally, consistently, and contextually."
+#         }
+#     ]
+
+#     # Inject full previous conversation
+#     messages.extend(conversation)
+
+#     # Add new user question
+#     messages.append({
+#         "role": "user",
+#         "content": question
+#     })
+
+#     response = client.chat.completions.create(
+#         model="llama-3.1-8b-instant",
+#         messages=messages,
+#         temperature=0.4,
+#         max_tokens=400,
+#     )
+
+#     return response.choices[0].message.content.strip()
+
+
 def generate_followup_answer(
     client: Groq,
     requirement: str,
     resume_text: str,
     proposal_text: str,
+    conversation: list,
     question: str,
 ) -> str:
 
-    prompt = f"""
-        You are a senior software developer answering a follow-up screening question on Upwork.
+    system_prompt = f"""
+        {GLOBAL_SCOPE_PROMPT}
 
-        Original Client Requirement:
+        You are a senior software developer answering Upwork screening questions.
+
+        You must stay aligned with:
+
+        ORIGINAL CLIENT REQUIREMENT:
         {requirement}
 
-        Original Proposal:
+        ORIGINAL PROPOSAL SUBMITTED:
         {proposal_text}
 
-        Resume:
+        CANDIDATE RESUME:
         {resume_text}
 
-        Screening Question:
-        {question}
-
         Rules:
-        - Keep answer between 4-5 lines.
-        - Stay aligned with the tone of the proposal.
-        - Do not contradict earlier claims.
-        - Be confident, specific, and natural.
-        - No fluff.
-        - No fluff about work experience. Only speak to the question.
-        - Output ONLY the answer text.
+        - Only answer if the question is job-related.
+        - If unrelated, return the strict fallback message defined above.
+        - Do NOT contradict earlier claims.
+        - Stay aligned with proposal tone.
+        - Be concise and specific.
+        - 4–6 lines maximum unless bullet points required.
+        - Output ONLY the answer.
     """
+
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
+
+    # Inject entire conversation history
+    messages.extend(conversation[-5:])
+
+    # Add latest question
+    messages.append({
+        "role": "user",
+        "content": question
+    })
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": "You are an expert software developer."},
-            {"role": "user", "content": prompt},
-        ],
+        messages=messages,
         temperature=0.4,
         max_tokens=400,
     )

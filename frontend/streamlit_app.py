@@ -1,13 +1,13 @@
 import streamlit as st
 import requests
-from datetime import datetime
 
 # ==============================
 # 🔗 API Configuration
 # ==============================
 
-API_BASE = "https://interstreet-elza-icy.ngrok-free.dev"
+API_BASE = "https://glenna-peptonic-unsmoulderingly.ngrok-free.dev"
 
+CLASSIFY_URL = f"{API_BASE}/classify"
 GENERATE_URL = f"{API_BASE}/generate/upwork"
 GENERATE_UPLOAD_URL = f"{API_BASE}/generate/upwork/upload"
 FOLLOWUP_URL = f"{API_BASE}/generate/upwork/followup"
@@ -21,7 +21,55 @@ st.set_page_config(
 )
 
 # ==============================
-# 📥 Fetch Backend Data
+# 🎨 Styling
+# ==============================
+
+st.markdown("""
+<style>
+.block-container {
+    max-width: 900px;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+}
+section[data-testid="stSidebar"] {
+    background-color: #0f172a;
+}
+.custom-card {
+    background-color: #111827;
+    padding: 1.5rem;
+    border-radius: 12px;
+    border: 1px solid #1f2937;
+    margin-bottom: 1.2rem;
+}
+.custom-alert {
+    background-color: #2d2f14;
+    padding: 1rem 1.2rem;
+    border-radius: 10px;
+    border: 1px solid #3f4220;
+    margin-bottom: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ==============================
+# 🔧 Session State Defaults
+# ==============================
+
+defaults = {
+    "session_id": None,
+    "resume_mode": "auto",
+    "selected_resume": "Auto Select (Semantic Search)",
+    "uploaded_resume_file": None,
+    "resume_mismatch": None,
+    "pending_requirement": None,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# ==============================
+# 📥 Backend Fetching
 # ==============================
 
 @st.cache_data(ttl=60)
@@ -51,22 +99,12 @@ def fetch_single_session(session_id):
         pass
     return None
 
+# ==============================
+# 📄 Resume Options
+# ==============================
 
 resume_list = fetch_resumes()
 resume_options = ["Auto Select (Semantic Search)"] + resume_list
-
-# ==============================
-# 🧠 Session State
-# ==============================
-
-if "session_id" not in st.session_state:
-    st.session_state.session_id = None
-
-if "selected_resume" not in st.session_state:
-    st.session_state.selected_resume = "Auto Select (Semantic Search)"
-
-if st.session_state.selected_resume not in resume_options:
-    st.session_state.selected_resume = "Auto Select (Semantic Search)"
 
 # ==============================
 # ⚙️ Sidebar
@@ -75,46 +113,48 @@ if st.session_state.selected_resume not in resume_options:
 with st.sidebar:
 
     st.title("🤖 Upwork Proposal Bot")
-    st.markdown("---")
 
-    # Resume Selection
     st.subheader("📄 Resume Options")
 
     selected_resume = st.selectbox(
         "Select Stored Resume",
         options=resume_options,
         index=resume_options.index(st.session_state.selected_resume)
+        if st.session_state.selected_resume in resume_options else 0
     )
 
     st.session_state.selected_resume = selected_resume
 
     if selected_resume == "Auto Select (Semantic Search)":
+        st.session_state.resume_mode = "auto"
         st.caption("🔍 Backend will auto-select best resume")
     else:
+        st.session_state.resume_mode = "stored"
         st.caption(f"✓ Using stored resume: {selected_resume}")
 
-    st.markdown("---")
+    st.subheader("📤 Upload Resume")
 
-    # Upload Resume
-    st.subheader("📤 Upload New Resume (Optional)")
-    uploaded_file = st.file_uploader(
-        "Upload PDF or TXT Resume",
-        type=["pdf", "txt"]
-    )
+    uploaded_file = st.file_uploader("Upload PDF or TXT Resume", type=["pdf", "txt"])
 
     if uploaded_file:
-        st.success(f"Ready to use uploaded file: {uploaded_file.name}")
+        st.session_state.resume_mode = "upload"
+        st.session_state.uploaded_resume_file = uploaded_file
+        st.success("Uploaded resume will be used.")
+
+    if st.session_state.resume_mode == "upload":
+        if st.button("❌ Clear Uploaded Resume"):
+            st.session_state.uploaded_resume_file = None
+            st.session_state.resume_mode = "auto"
+            st.rerun()
 
     st.markdown("---")
 
-    # New Chat Button
     if st.button("➕ New Application", use_container_width=True):
-        st.session_state.session_id = None
+        for key in ["session_id", "resume_mismatch", "pending_requirement"]:
+            st.session_state[key] = None
         st.rerun()
 
     st.markdown("---")
-
-    # Chat History
     st.subheader("💬 Previous Applications")
 
     sessions = fetch_sessions()
@@ -122,135 +162,206 @@ with st.sidebar:
     if sessions:
         for session in sessions:
             if st.button(
-                session["title"][:50] + "...",
-                key=session["id"],
+                session.get("title", "Untitled")[:40],
+                key=f"session_{session['id']}",
                 use_container_width=True
             ):
                 st.session_state.session_id = session["id"]
+                st.session_state.resume_mismatch = None
+                st.session_state.pending_requirement = None
                 st.rerun()
     else:
-        st.info("No previous chats yet.")
+        st.caption("No previous chats yet.")
 
 # ==============================
-# 💬 Main Chat Area
+# 💬 Chat Area
 # ==============================
 
-if st.session_state.session_id:
+if not st.session_state.session_id:
+    st.markdown("""
+    <div class="custom-card">
+        <h2>📝 Start a New Application</h2>
+        <p style="color: #9ca3af;">
+        Paste a job description below to generate a tailored proposal.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+else:
     session_data = fetch_single_session(st.session_state.session_id)
-
     if session_data:
-        conversation = session_data.get("conversation", [])
-
-        for msg in conversation:
+        for msg in session_data.get("conversation", []):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
-    else:
-        st.error("Could not load session.")
 
-else:
-    st.markdown("## 📝 Start a New Application")
-    st.markdown("Paste a job description below to generate a proposal.")
+
+# ==============================
+# 🟨 Resume Mismatch UI
+# ==============================
+if st.session_state.resume_mismatch and st.session_state.pending_requirement:
+
+    mm = st.session_state.resume_mismatch
+    best = mm.get("best_match_resume")
+    score = mm.get("similarity_score", 0)
+
+    st.markdown(f"""
+    <div class="custom-alert">
+        <b>Resume Mismatch Detected</b><br/>
+        The selected resume does not strongly match this requirement.
+    </div>
+    <p><b>Best Match:</b> {best}</p>
+    <p><b>Similarity Score:</b> {score * 100:.1f}%</p>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("✅ Proceed with Best Match", use_container_width=True):
+
+            req = st.session_state.pending_requirement
+
+            st.session_state.resume_mismatch = None
+            st.session_state.pending_requirement = None
+            st.session_state.resume_mode = "stored"
+            st.session_state.selected_resume = best
+
+            r = requests.post(
+                GENERATE_URL,
+                json={"requirement": req, "resume_name": best},
+                timeout=120
+            )
+
+            if r.status_code == 200:
+                data = r.json()
+                if "session_id" in data:
+                    st.session_state.session_id = data["session_id"]
+                    fetch_sessions.clear()
+                    st.rerun()
+                else:
+                    st.error("Backend did not return session_id.")
+            else:
+                st.error(r.text)
+
+    with col2:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.resume_mismatch = None
+            st.session_state.pending_requirement = None
+            st.rerun()
+
 
 # ==============================
 # 📝 Chat Input
 # ==============================
 
+st.divider()
 user_input = st.chat_input("Paste job description or ask follow-up...")
 
 if user_input:
 
-    # ----------------------------
-    # FOLLOW-UP MODE
-    # ----------------------------
+    # Show user message instantly
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # ==========================
+    # FOLLOWUP FLOW
+    # ==========================
     if st.session_state.session_id:
 
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        with st.spinner("Thinking..."):
+            r = requests.post(
+                FOLLOWUP_URL,
+                json={
+                    "session_id": st.session_state.session_id,
+                    "question": user_input
+                }
+            )
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    r = requests.post(
-                        FOLLOWUP_URL,
-                        json={
-                            "session_id": st.session_state.session_id,
-                            "question": user_input
-                        },
-                        timeout=60
-                    )
+        if r.status_code == 200:
+            data = r.json()
+            content = data.get("answer") or data.get("proposal")
 
-                    if r.status_code == 200:
-                        answer = r.json().get("answer", "")
-                        st.markdown(answer)
-                    else:
-                        st.error("Error in follow-up.")
+            if content:
+                with st.chat_message("assistant"):
+                    st.markdown(content)
+            else:
+                st.error("Empty response from backend.")
 
-                except Exception as e:
-                    st.error(str(e))
+        else:
+            st.error(r.text)
 
-        st.rerun()
-
-    # ----------------------------
-    # INITIAL GENERATION MODE
-    # ----------------------------
+    # ==========================
+    # NEW PROPOSAL FLOW
+    # ==========================
     else:
 
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        classify_response = requests.post(
+            CLASSIFY_URL,
+            json={"requirement": user_input}
+        )
 
-        with st.chat_message("assistant"):
-            with st.spinner("Generating proposal..."):
+        if classify_response.status_code == 200:
+            is_job = classify_response.json().get("is_job_related", False)
 
-                try:
+            if not is_job:
+                with st.chat_message("assistant"):
+                    st.markdown(
+                        "I am a job-application assistant and can only assist with job-related queries such as proposals, requirements, resume details, or hiring discussions."
+                    )
+                st.stop()
 
-                    # 🔥 CASE 1: Upload Resume
-                    if uploaded_file:
+        with st.spinner("Generating proposal..."):
 
-                        files = {
-                            "file": (
-                                uploaded_file.name,
-                                uploaded_file,
-                                uploaded_file.type
-                            )
-                        }
+            try:
 
-                        data = {
-                            "requirement": user_input
-                        }
-
-                        r = requests.post(
-                            GENERATE_UPLOAD_URL,
-                            data=data,
-                            files=files,
-                            timeout=120
+                if st.session_state.resume_mode == "upload":
+                    uploaded_file = st.session_state.uploaded_resume_file
+                    files = {
+                        "file": (
+                            uploaded_file.name,
+                            uploaded_file,
+                            uploaded_file.type
                         )
+                    }
 
-                    # 🔥 CASE 2: Stored Resume
-                    else:
+                    r = requests.post(
+                        GENERATE_UPLOAD_URL,
+                        data={"requirement": user_input},
+                        files=files,
+                        timeout=120
+                    )
 
-                        payload = {
-                            "requirement": user_input
-                        }
+                elif st.session_state.resume_mode == "stored":
+                    payload = {
+                        "requirement": user_input,
+                        "resume_name": st.session_state.selected_resume
+                    }
+                    r = requests.post(GENERATE_URL, json=payload)
 
-                        if selected_resume != "Auto Select (Semantic Search)":
-                            payload["resume_name"] = selected_resume
+                else:
+                    r = requests.post(
+                        GENERATE_URL,
+                        json={"requirement": user_input}
+                    )
 
-                        r = requests.post(
-                            GENERATE_URL,
-                            json=payload,
-                            timeout=120
-                        )
+                if r.status_code == 200:
+                    data = r.json()
 
-                    # ----------------------------
-                    if r.status_code == 200:
-                        data = r.json()
-                        st.session_state.session_id = data["session_id"]
-                        st.markdown(data["proposal"])
-                    else:
-                        st.error(f"Error: {r.status_code}")
-                        st.code(r.text)
+                    if "best_match_resume" in data and "similarity_score" in data:
+                        # store mismatch info + the job text the user pasted
+                        st.session_state.resume_mismatch = data
+                        st.session_state.pending_requirement = user_input
+                        st.rerun()
 
-                except Exception as e:
-                    st.error(str(e))
+                    if "error" in data:
+                        with st.chat_message("assistant"):
+                            st.markdown(data["error"])
+                        st.stop()
 
-        st.rerun()
+                    st.session_state.session_id = data["session_id"]
+                    fetch_sessions.clear()
+                    st.rerun()
+
+                else:
+                    st.error(r.text)
+
+            except Exception as e:
+                st.error(str(e))

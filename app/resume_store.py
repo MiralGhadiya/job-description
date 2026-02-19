@@ -102,8 +102,10 @@ class FaissResumeStore:
         scores, indices = self.index.search(query_emb, top_k)
 
         idx = indices[0][0]
+        score = float(scores[0][0])
 
         return {
             "text": self.texts[idx],
             "metadata": self.metadata[idx],
+            "score": score
         }

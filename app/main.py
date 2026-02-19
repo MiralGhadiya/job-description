@@ -9,12 +9,13 @@ from app.config import groq_client
 from app.vectorstore import FaissProjectStore
 from app.review_store import FaissReviewStore
 from app.resume_store import FaissResumeStore
+
 # from app.session_store import ApplicationSessionStore
 
 from app.models import ApplicationSession
 from app.database import SessionLocal
 from app.schemas import UpworkRequest, FollowupRequest
-from app.llm_core import generate_upwork_proposal, generate_followup_answer
+from app.llm_core import generate_upwork_proposal, generate_followup_answer, classify_job_intent, classify_conversation_intent
 
 
 app = FastAPI(
@@ -41,6 +42,15 @@ def startup_event():
     resume_store.load()
 
     print("FAISS stores loaded successfully.")
+    
+    
+@app.post("/classify")
+def classify(req: UpworkRequest):
+    is_job_related = classify_job_intent(
+        client=groq_client,
+        text=req.requirement
+    )
+    return {"is_job_related": is_job_related}
 
 
 @app.post("/generate/upwork")
@@ -65,6 +75,16 @@ def generate_upwork(req: UpworkRequest):
     else:
         resume_data = resume_store.search(req.requirement)
         print(f"Resume search result for semantic search:\n{resume_data}\n---")
+        
+        similarity_score = resume_data.get("score", 0)
+
+        # 50% threshold check
+        if similarity_score < 0.50:
+            return {
+                "error": "Requirements do not match with your resume list. Do you want to proceed with the most similar resume or do you want to upload a new one?",
+                "best_match_resume": resume_data["metadata"]["name"],
+                "similarity_score": similarity_score
+            }
         
     resume_text = resume_data["text"]
     print(f"Using resume text:\n{resume_text}\n---")
@@ -130,29 +150,98 @@ def generate_followup(req: FollowupRequest):
     conversation = json.loads(session_obj.conversation_json)
     print(f"Current conversation history:\n{conversation}\n---")
 
-    answer = generate_followup_answer(
-        client=groq_client,
-        requirement=session_obj.requirement,
-        resume_text=session_obj.resume_text,
-        proposal_text=session_obj.proposal_text,
-        conversation=conversation,
-        question=req.question
-    )
     # answer = generate_followup_answer(
     #     client=groq_client,
+    #     requirement=session_obj.requirement,
+    #     resume_text=session_obj.resume_text,
+    #     proposal_text=session_obj.proposal_text,
     #     conversation=conversation,
     #     question=req.question
     # )
-    print(f"Generated follow-up answer:\n{answer}\n---")
-    
-    conversation.append({"role": "user", "content": req.question})
-    conversation.append({"role": "assistant", "content": answer})
 
-    session_obj.conversation_json = json.dumps(conversation)
-
-    db.commit()
+    # print(f"Generated follow-up answer:\n{answer}\n---")
     
-    return {"answer": answer}
+    # conversation.append({"role": "user", "content": req.question})
+    # conversation.append({"role": "assistant", "content": answer})
+
+    # session_obj.conversation_json = json.dumps(conversation)
+
+    # db.commit()
+    
+    # return {"answer": answer}
+    
+        # 🔎 Step 1: Let LLM decide intent
+    intent = classify_conversation_intent(
+        client=groq_client,
+        requirement=session_obj.requirement,
+        proposal=session_obj.proposal_text,
+        conversation=conversation[-4:],  # keep context short
+        new_input=req.question
+    )
+
+    print(f"!!!!!!!!!!!!!!!!!Detected intent: {intent}")
+
+    # 🟢 CASE 1: New Job Requirement → Regenerate Proposal
+    if intent == "NEW_JOB_REQUIREMENT":
+
+        projects_text = project_store.search(req.question, top_k=3)
+        review_text = review_store.search(req.question, top_k=2)
+
+        combined_text = f"""
+            Candidate Resume:
+            {session_obj.resume_text}
+
+            Structured Project Data:
+            {projects_text}
+
+            Client Feedback Data:
+            {review_text}
+        """
+
+        proposal = generate_upwork_proposal(
+            client=groq_client,
+            requirement=req.question,
+            projects_text=combined_text
+        )
+
+        # Reset conversation
+        conversation.append({"role": "user", "content": req.question})
+        conversation.append({"role": "assistant", "content": proposal})
+
+        session_obj.requirement = req.question
+        session_obj.proposal_text = proposal
+        session_obj.conversation_json = json.dumps(conversation)
+        db.commit()
+
+        return {"proposal": proposal}
+
+
+    # 🟢 CASE 2: Follow-up Question
+    elif intent == "FOLLOWUP_QUESTION":
+
+        answer = generate_followup_answer(
+            client=groq_client,
+            requirement=session_obj.requirement,
+            resume_text=session_obj.resume_text,
+            proposal_text=session_obj.proposal_text,
+            conversation=conversation,
+            question=req.question
+        )
+
+        conversation.append({"role": "user", "content": req.question})
+        conversation.append({"role": "assistant", "content": answer})
+
+        session_obj.conversation_json = json.dumps(conversation)
+        db.commit()
+
+        return {"answer": answer}
+
+    # 🔴 CASE 3: Not Job Related
+    else:
+        return {
+            "answer": "I am a job-application assistant and can only assist with job-related queries such as proposals, requirements, resume details, or hiring discussions."
+        }
+
 
      
 @app.post("/debug/search")

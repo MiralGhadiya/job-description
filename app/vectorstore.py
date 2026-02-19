@@ -99,10 +99,10 @@ class FaissProjectStore:
 
     def _row_to_text(self, row, category: str) -> str:
         return f"""
-Project: {row.get('PROJECT NAME', '')}
-Project Type: {row.get('Unnamed: 1', '')}
-Category: {category}
-Industry: {row.get('INDUSTRY', '')}
-Tech Stack: {row.get('Tech Stack', '')}
-Description: {row.get('DESCRIPTION', '')}
-""".strip()
+            Project: {row.get('PROJECT NAME', '')}
+            Project Type: {row.get('Unnamed: 1', '')}
+            Category: {category}
+            Industry: {row.get('INDUSTRY', '')}
+            Tech Stack: {row.get('Tech Stack', '')}
+            Description: {row.get('DESCRIPTION', '')}
+            """.strip()

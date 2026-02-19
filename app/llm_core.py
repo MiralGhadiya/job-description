@@ -1,6 +1,7 @@
 # app/llm_core.py
 from groq import Groq
 
+
 GLOBAL_SCOPE_PROMPT = """
         You are a strict Job Application Assistant.
 
@@ -26,6 +27,59 @@ GLOBAL_SCOPE_PROMPT = """
         Do NOT answer unrelated prompts.
         Stay professional and strict.
     """
+    
+def classify_job_intent(client: Groq, text: str) -> bool:
+    """
+    Returns True if input is job-related.
+    Returns False if not job-related.
+    """
+
+    classification_prompt = f"""
+            You are an intent classifier.
+
+            Classify the following input strictly as one of:
+
+            - JOB_RELATED
+            - NOT_JOB_RELATED
+
+            Definition of JOB_RELATED:
+            - A real job requirement
+            - Hiring discussion
+            - Freelance project description
+            - Technical work inquiry
+            - Resume discussion
+            - Screening question
+
+            Definition of NOT_JOB_RELATED:
+            - Greetings (hi, hello, hey)
+            - Casual talk
+            - Random statements
+            - Personal questions
+            - Jokes
+            - Weather, politics, etc.
+
+            Respond with ONLY:
+            JOB_RELATED
+            or
+            NOT_JOB_RELATED
+
+            Input:
+            {text}
+    """
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "You are a strict intent classifier."},
+            {"role": "user", "content": classification_prompt},
+        ],
+        temperature=0,
+        max_tokens=5,
+    )
+
+    result = response.choices[0].message.content.strip()
+
+    return result == "JOB_RELATED"
 
 def generate_upwork_proposal(
     client: Groq,
@@ -199,12 +253,13 @@ def generate_followup_answer(
         {resume_text}
 
         Rules:
-        - Only answer if the question is job-related.
-        - If unrelated, return the strict fallback message defined above.
+        - The intent has already been classified as a valid follow-up question.
+        - Answer professionally and concisely.
+        - Portfolio links, GitHub, past work samples, availability, and rates are valid job-related topics.
         - Do NOT contradict earlier claims.
         - Stay aligned with proposal tone.
         - Be concise and specific.
-        - 4–6 lines maximum unless bullet points required.
+        - 4-6 lines maximum unless bullet points required.
         - Output ONLY the answer.
     """
 
@@ -230,6 +285,79 @@ def generate_followup_answer(
 
     return response.choices[0].message.content.strip()
 
+
+def classify_conversation_intent(
+    client: Groq,
+    requirement: str,
+    proposal: str,
+    conversation: list,
+    new_input: str,
+) -> str:
+
+    prompt = f"""
+    You are a strict intent classifier.
+
+    ORIGINAL JOB REQUIREMENT:
+    {requirement}
+
+    ORIGINAL PROPOSAL:
+    {proposal}
+
+    CONVERSATION HISTORY:
+    {conversation}
+
+    NEW USER INPUT:
+    {new_input}
+
+    Classify the NEW USER INPUT strictly as one of:
+
+    - NEW_JOB_REQUIREMENT
+    - FOLLOWUP_QUESTION
+    - NOT_JOB_RELATED
+
+    Definitions:
+
+    NEW_JOB_REQUIREMENT:
+    - A full job description
+    - A hiring post
+    - A project requirement
+    - Even if it is identical or similar to the previous requirement
+    - Long structured content describing a project
+
+    FOLLOWUP_QUESTION:
+    - A short screening question
+    - Clarification about earlier proposal
+    - A technical question about implementation
+    - Usually 1-3 sentences
+
+    NOT_JOB_RELATED:
+    - Greetings
+    - Casual talk
+    - Random unrelated discussion
+
+    Important:
+    If the input looks like a job description, ALWAYS classify it as NEW_JOB_REQUIREMENT.
+    """
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "You are a strict classifier."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0,
+        max_tokens=10,
+    )
+
+    raw_output = response.choices[0].message.content.strip()
+
+    # Force strict label extraction
+    if "NEW_JOB_REQUIREMENT" in raw_output:
+        return "NEW_JOB_REQUIREMENT"
+    elif "FOLLOWUP_QUESTION" in raw_output:
+        return "FOLLOWUP_QUESTION"
+    else:
+        return "NOT_JOB_RELATED"
 
 
 

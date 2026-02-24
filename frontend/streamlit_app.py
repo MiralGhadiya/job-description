@@ -13,6 +13,7 @@ GENERATE_UPLOAD_URL = f"{API_BASE}/generate/upwork/upload"
 FOLLOWUP_URL = f"{API_BASE}/generate/upwork/followup"
 RESUME_URL = f"{API_BASE}/resumes"
 SESSIONS_URL = f"{API_BASE}/sessions"
+UPLOAD_RESUME_URL = f"{API_BASE}/resumes/upload"
 
 st.set_page_config(
     page_title="Upwork Proposal Bot",
@@ -22,7 +23,7 @@ st.set_page_config(
 
 # ==============================
 # 🎨 Styling
-# ==============================
+# ============================== 
 
 st.markdown("""
 <style>
@@ -52,7 +53,7 @@ section[data-testid="stSidebar"] {
 """, unsafe_allow_html=True)
 
 # ==============================
-# 🔧 Session State Defaults
+# 🔧 Session Defaults
 # ==============================
 
 defaults = {
@@ -61,7 +62,6 @@ defaults = {
     "selected_resume": "Auto Select (Semantic Search)",
     "uploaded_resume_file": None,
     "resume_mismatch": None,
-    "pending_requirement": None,
 }
 
 for key, value in defaults.items():
@@ -100,13 +100,6 @@ def fetch_single_session(session_id):
     return None
 
 # ==============================
-# 📄 Resume Options
-# ==============================
-
-resume_list = fetch_resumes()
-resume_options = ["Auto Select (Semantic Search)"] + resume_list
-
-# ==============================
 # ⚙️ Sidebar
 # ==============================
 
@@ -115,6 +108,9 @@ with st.sidebar:
     st.title("🤖 Upwork Proposal Bot")
 
     st.subheader("📄 Resume Options")
+
+    resume_list = fetch_resumes()
+    resume_options = ["Auto Select (Semantic Search)"] + resume_list
 
     selected_resume = st.selectbox(
         "Select Stored Resume",
@@ -132,27 +128,116 @@ with st.sidebar:
         st.session_state.resume_mode = "stored"
         st.caption(f"✓ Using stored resume: {selected_resume}")
 
-    st.subheader("📤 Upload Resume")
+        if st.button("🗑 Delete Selected Resume", use_container_width=True):
+            r = requests.delete(f"{API_BASE}/resumes/{selected_resume}")
+            if r.status_code == 200:
+                st.success("Resume deleted.")
+                fetch_resumes.clear()
+                st.session_state.selected_resume = "Auto Select (Semantic Search)"
+                st.rerun()
+            else:
+                st.error(r.text)
 
-    uploaded_file = st.file_uploader("Upload PDF or TXT Resume", type=["pdf", "txt"])
+    st.markdown("---")
+    st.subheader("📤 Upload Resume (One-Time Use)")
+
+    uploaded_file = st.file_uploader(
+        "Upload PDF or TXT Resume",
+        type=["pdf", "txt"],
+        key="one_time_upload"
+    )
 
     if uploaded_file:
         st.session_state.resume_mode = "upload"
         st.session_state.uploaded_resume_file = uploaded_file
-        st.success("Uploaded resume will be used.")
+        st.success("Uploaded resume will be used for next proposal.")
 
     if st.session_state.resume_mode == "upload":
-        if st.button("❌ Clear Uploaded Resume"):
+        if st.button("❌ Clear Uploaded Resume", use_container_width=True):
             st.session_state.uploaded_resume_file = None
             st.session_state.resume_mode = "auto"
             st.rerun()
 
     st.markdown("---")
+    st.subheader("➕ Add Resume To Store")
 
+    new_resume_file = st.file_uploader(
+        "Upload Resume (Saved Permanently)",
+        type=["pdf", "txt"],
+        key="store_upload"
+    )
+
+    if st.button("Save Resume To Store", use_container_width=True):
+
+        if new_resume_file:
+            resume_name = new_resume_file.name.rsplit(".", 1)[0]
+
+            files = {
+                "file": (
+                    new_resume_file.name,
+                    new_resume_file,
+                    new_resume_file.type
+                )
+            }
+
+            r = requests.post(
+                UPLOAD_RESUME_URL,
+                data={"resume_name": resume_name},
+                files=files
+            )
+
+            if r.status_code == 200:
+                st.success(f"Resume saved as: {resume_name}")
+                fetch_resumes.clear()
+                st.rerun()
+            else:
+                st.error(r.text)
+        else:
+            st.warning("Please upload a file first.")
+            
+            
+    st.markdown("---")
+    st.subheader("📊 Sync Reviews + Projects from Google Sheets")
+
+    reviews_url = st.text_input("Reviews CSV URL (optional)")
+    projects_url = st.text_input("Projects CSV URL (required)")
+
+    if st.button("Sync"):
+        if not projects_url:
+            st.warning("Please enter Projects CSV URL.")
+        else:
+            # Sync projects (required)
+            r_projects = requests.post(
+                f"{API_BASE}/sync/google-sheet/projects",
+                json={"sheet_url": projects_url}
+            )
+
+            # Sync reviews (optional)
+            r_reviews = None
+            if reviews_url:
+                r_reviews = requests.post(
+                    f"{API_BASE}/sync/google-sheet/reviews",
+                    json={"sheet_url": reviews_url}
+                )
+
+            ok_projects = (r_projects.status_code == 200)
+            ok_reviews = (r_reviews is None or r_reviews.status_code == 200)
+
+            if ok_projects and ok_reviews:
+                st.success("✅ Sync completed successfully.")
+            else:
+                st.error(
+                    f"Projects sync: {r_projects.text}\n"
+                    f"Reviews sync: {r_reviews.text if r_reviews else 'SKIPPED'}"
+                )
+        
+
+    st.markdown("---")
     if st.button("➕ New Application", use_container_width=True):
-        for key in ["session_id", "resume_mismatch", "pending_requirement"]:
-            st.session_state[key] = None
+        st.session_state.session_id = None
+        st.session_state.resume_mismatch = None
         st.rerun()
+
 
     st.markdown("---")
     st.subheader("💬 Previous Applications")
@@ -168,7 +253,6 @@ with st.sidebar:
             ):
                 st.session_state.session_id = session["id"]
                 st.session_state.resume_mismatch = None
-                st.session_state.pending_requirement = None
                 st.rerun()
     else:
         st.caption("No previous chats yet.")
@@ -193,60 +277,48 @@ else:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-
 # ==============================
-# 🟨 Resume Mismatch UI
+# 🚨 Resume Mismatch UI
 # ==============================
-if st.session_state.resume_mismatch and st.session_state.pending_requirement:
 
-    mm = st.session_state.resume_mismatch
-    best = mm.get("best_match_resume")
-    score = mm.get("similarity_score", 0)
+if st.session_state.resume_mismatch:
 
-    st.markdown(f"""
+    mismatch = st.session_state.resume_mismatch
+
+    st.markdown("""
     <div class="custom-alert">
-        <b>Resume Mismatch Detected</b><br/>
-        The selected resume does not strongly match this requirement.
+        <h4>Resume Mismatch Detected</h4>
+        <p>The selected resume does not strongly match this requirement.</p>
     </div>
-    <p><b>Best Match:</b> {best}</p>
-    <p><b>Similarity Score:</b> {score * 100:.1f}%</p>
     """, unsafe_allow_html=True)
+
+    st.write(f"**Best Match:** {mismatch['best_match']}")
+    st.write(f"**Similarity Score:** {mismatch['score'] * 100:.1f}%")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("✅ Proceed with Best Match", use_container_width=True):
+        if st.button("✅ Proceed with Best Match"):
+            payload = {
+                "requirement": mismatch["requirement"],
+                "resume_name": mismatch["best_match"]
+            }
 
-            req = st.session_state.pending_requirement
-
-            st.session_state.resume_mismatch = None
-            st.session_state.pending_requirement = None
-            st.session_state.resume_mode = "stored"
-            st.session_state.selected_resume = best
-
-            r = requests.post(
-                GENERATE_URL,
-                json={"requirement": req, "resume_name": best},
-                timeout=120
-            )
+            r = requests.post(GENERATE_URL, json=payload)
 
             if r.status_code == 200:
                 data = r.json()
-                if "session_id" in data:
-                    st.session_state.session_id = data["session_id"]
-                    fetch_sessions.clear()
-                    st.rerun()
-                else:
-                    st.error("Backend did not return session_id.")
-            else:
-                st.error(r.text)
+                st.session_state.resume_mismatch = None
+                st.session_state.session_id = data["session_id"]
+                fetch_sessions.clear()
+                st.rerun()
 
     with col2:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel"):
             st.session_state.resume_mismatch = None
-            st.session_state.pending_requirement = None
             st.rerun()
 
+    st.stop()
 
 # ==============================
 # 📝 Chat Input
@@ -257,15 +329,10 @@ user_input = st.chat_input("Paste job description or ask follow-up...")
 
 if user_input:
 
-    # Show user message instantly
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # ==========================
-    # FOLLOWUP FLOW
-    # ==========================
     if st.session_state.session_id:
-
         with st.spinner("Thinking..."):
             r = requests.post(
                 FOLLOWUP_URL,
@@ -284,13 +351,9 @@ if user_input:
                     st.markdown(content)
             else:
                 st.error("Empty response from backend.")
-
         else:
             st.error(r.text)
 
-    # ==========================
-    # NEW PROPOSAL FLOW
-    # ==========================
     else:
 
         classify_response = requests.post(
@@ -345,16 +408,14 @@ if user_input:
                 if r.status_code == 200:
                     data = r.json()
 
-                    if "best_match_resume" in data and "similarity_score" in data:
-                        # store mismatch info + the job text the user pasted
-                        st.session_state.resume_mismatch = data
-                        st.session_state.pending_requirement = user_input
+                    if "best_match_resume" in data:
+                        st.session_state.resume_mismatch = {
+                            "message": data["error"],
+                            "best_match": data["best_match_resume"],
+                            "score": data["similarity_score"],
+                            "requirement": user_input
+                        }
                         st.rerun()
-
-                    if "error" in data:
-                        with st.chat_message("assistant"):
-                            st.markdown(data["error"])
-                        st.stop()
 
                     st.session_state.session_id = data["session_id"]
                     fetch_sessions.clear()

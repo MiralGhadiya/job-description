@@ -1,6 +1,5 @@
 # app/models.py
 import uuid
-import json
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime
 from app.database import Base
@@ -13,5 +12,9 @@ class ApplicationSession(Base):
     requirement = Column(Text, nullable=False)
     resume_text = Column(Text, nullable=False)
     proposal_text = Column(Text, nullable=False)
+    
+    resume_summary = Column(Text, nullable=True)
+    proposal_summary = Column(Text, nullable=True)
+    
     conversation_json = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

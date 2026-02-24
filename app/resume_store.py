@@ -5,7 +5,6 @@ from pathlib import Path
 from app.embeddings import embedding_model
 
 DATA_DIR = Path("data")
-RESUME_DIR = Path("resume")
 INDEX_PATH = DATA_DIR / "resumes.faiss"
 META_PATH = DATA_DIR / "resumes_meta.pkl"
 
@@ -16,7 +15,8 @@ class FaissResumeStore:
         self.index = None
         self.texts = []
         self.metadata = []
-        
+
+    # ---------------- GET BY NAME ----------------
     def get_by_name(self, name: str):
         for text, meta in zip(self.texts, self.metadata):
             if meta["name"].lower() == name.lower():
@@ -26,74 +26,36 @@ class FaissResumeStore:
                 }
         return None
 
-    # -------- BUILD FROM FOLDER --------
-    def build_from_folder(self):
-        import pdfplumber
-
-        resumes = []
-
-        for file in RESUME_DIR.glob("*"):
-            if file.suffix.lower() == ".txt":
-                text = file.read_text(encoding="utf-8")
-
-            elif file.suffix.lower() == ".pdf":
-                with pdfplumber.open(file) as pdf:
-                    text = "\n".join(
-                        page.extract_text() or "" for page in pdf.pages
-                    )
-
-            else:
-                continue
-
-            if not text.strip():
-                continue
-
-            resumes.append({
-                "name": file.stem,
-                "text": text
-            })
-
-        if not resumes:
-            raise RuntimeError("No valid resumes found in resume/ folder")
-
-        self._build(resumes)
-
-    # -------- INTERNAL BUILD --------
-    def _build(self, resumes: list):
-        for r in resumes:
-            self.texts.append(r["text"])
-            self.metadata.append({"name": r["name"]})
-
-        embeddings = self.model.encode(
-            self.texts,
-            normalize_embeddings=True,
-        ).astype("float32")
-
-        dim = embeddings.shape[1]
-        self.index = faiss.IndexFlatIP(dim)
-        self.index.add(embeddings)
-
-        DATA_DIR.mkdir(exist_ok=True)
-        faiss.write_index(self.index, str(INDEX_PATH))
-
-        with open(META_PATH, "wb") as f:
-            pickle.dump((self.texts, self.metadata), f)
-
-        print(f"Built resume index for {len(resumes)} resumes.")
-
-    # -------- LOAD OR AUTO BUILD --------
+    # ---------------- LOAD ----------------
     def load(self):
-        if not INDEX_PATH.exists():
-            print("Resume index not found. Building automatically...")
-            self.build_from_folder()
+        if not INDEX_PATH.exists() or not META_PATH.exists():
+            print("Resume index not found. Creating empty store.")
+            DATA_DIR.mkdir(exist_ok=True)
+            self.index = None
+            self.texts = []
+            self.metadata = []
+            return
 
         self.index = faiss.read_index(str(INDEX_PATH))
 
         with open(META_PATH, "rb") as f:
             self.texts, self.metadata = pickle.load(f)
 
-    # -------- SEARCH --------
+    # ---------------- SAVE ----------------
+    def save(self):
+        DATA_DIR.mkdir(exist_ok=True)
+
+        if self.index is not None:
+            faiss.write_index(self.index, str(INDEX_PATH))
+
+        with open(META_PATH, "wb") as f:
+            pickle.dump((self.texts, self.metadata), f)
+
+    # ---------------- SEARCH ----------------
     def search(self, query: str, top_k: int = 1):
+        if self.index is None:
+            return None
+
         query_emb = self.model.encode(
             [query],
             normalize_embeddings=True,
@@ -109,3 +71,57 @@ class FaissResumeStore:
             "metadata": self.metadata[idx],
             "score": score
         }
+
+    # ---------------- ADD RESUME ----------------
+    def add_resume(self, name: str, text: str):
+
+        # Prevent duplicate names
+        for meta in self.metadata:
+            if meta["name"].lower() == name.lower():
+                raise ValueError("Resume with this name already exists.")
+
+        embedding = self.model.encode(
+            [text],
+            normalize_embeddings=True
+        ).astype("float32")
+
+        if self.index is None:
+            dim = embedding.shape[1]
+            self.index = faiss.IndexFlatIP(dim)
+
+        self.index.add(embedding)
+
+        self.texts.append(text)
+        self.metadata.append({"name": name})
+
+    # ---------------- DELETE RESUME ----------------
+    def delete_resume(self, name: str):
+
+        new_texts = []
+        new_metadata = []
+
+        for text, meta in zip(self.texts, self.metadata):
+            if meta["name"].lower() != name.lower():
+                new_texts.append(text)
+                new_metadata.append(meta)
+
+        if len(new_texts) == len(self.texts):
+            return False
+
+        self.texts = new_texts
+        self.metadata = new_metadata
+
+        if not self.texts:
+            self.index = None
+            return True
+
+        embeddings = self.model.encode(
+            self.texts,
+            normalize_embeddings=True
+        ).astype("float32")
+
+        dim = embeddings.shape[1]
+        self.index = faiss.IndexFlatIP(dim)
+        self.index.add(embeddings)
+
+        return True

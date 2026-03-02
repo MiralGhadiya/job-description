@@ -5,7 +5,7 @@ import requests
 # 🔗 API Configuration
 # ==============================
 
-API_BASE = "https://glenna-peptonic-unsmoulderingly.ngrok-free.dev"
+API_BASE = "https://glenna-peptonic-unsmoulderingly.ngrok-free.dev/api/v1"
 
 CLASSIFY_URL = f"{API_BASE}/classify"
 GENERATE_URL = f"{API_BASE}/generate/upwork"
@@ -62,6 +62,7 @@ defaults = {
     "selected_resume": "Auto Select (Semantic Search)",
     "uploaded_resume_file": None,
     "resume_mismatch": None,
+    "upload_counter": 0,
 }
 
 for key, value in defaults.items():
@@ -144,20 +145,25 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload PDF or TXT Resume",
         type=["pdf", "txt"],
-        key="one_time_upload"
+        key=f"one_time_upload_{st.session_state.upload_counter}"
     )
 
     if uploaded_file:
         st.session_state.resume_mode = "upload"
-        st.session_state.uploaded_resume_file = uploaded_file
         st.success("Uploaded resume will be used for next proposal.")
 
     if st.session_state.resume_mode == "upload":
         if st.button("❌ Clear Uploaded Resume", use_container_width=True):
-            st.session_state.uploaded_resume_file = None
-            st.session_state.resume_mode = "auto"
-            st.rerun()
 
+            # 🔥 Force new uploader instance
+            st.session_state.upload_counter += 1
+
+            # Reset mode
+            st.session_state.resume_mode = "auto"
+
+            st.rerun()
+                
+            
     st.markdown("---")
     st.subheader("➕ Add Resume To Store")
 
@@ -376,7 +382,11 @@ if user_input:
             try:
 
                 if st.session_state.resume_mode == "upload":
-                    uploaded_file = st.session_state.uploaded_resume_file
+
+                    if not uploaded_file:
+                        st.error("No resume uploaded.")
+                        st.stop()
+
                     files = {
                         "file": (
                             uploaded_file.name,

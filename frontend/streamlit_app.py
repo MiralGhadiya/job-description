@@ -5,7 +5,7 @@ import requests
 # 🔗 API Configuration
 # ==============================
 
-API_BASE = "https://glenna-peptonic-unsmoulderingly.ngrok-free.dev/api/v1"
+API_BASE = "http://127.0.0.1:8000/api/v1"
 
 CLASSIFY_URL = f"{API_BASE}/classify"
 GENERATE_URL = f"{API_BASE}/generate/upwork"
@@ -14,6 +14,7 @@ FOLLOWUP_URL = f"{API_BASE}/generate/upwork/followup"
 RESUME_URL = f"{API_BASE}/resumes"
 SESSIONS_URL = f"{API_BASE}/sessions"
 UPLOAD_RESUME_URL = f"{API_BASE}/resumes/upload"
+
 
 st.set_page_config(
     page_title="Upwork Proposal Bot",
@@ -79,24 +80,27 @@ def fetch_resumes():
         r = requests.get(RESUME_URL, timeout=10)
         r.raise_for_status()
         return r.json().get("resumes", [])
-    except:
+    except Exception:
         return []
 
-@st.cache_data(ttl=30)
-def fetch_sessions():
+def fetch_sessions(limit=10, offset=0):
     try:
-        r = requests.get(SESSIONS_URL, timeout=10)
+        r = requests.get(
+            SESSIONS_URL,
+            params={"limit": limit, "offset": offset},
+            timeout=10
+        )
         r.raise_for_status()
         return r.json()
-    except:
-        return []
+    except Exception:
+        return {"sessions": [], "total": 0}
 
 def fetch_single_session(session_id):
     try:
         r = requests.get(f"{API_BASE}/sessions/{session_id}", timeout=10)
         if r.status_code == 200:
             return r.json()
-    except:
+    except Exception:
         pass
     return None
 
@@ -105,6 +109,12 @@ def fetch_single_session(session_id):
 # ==============================
 
 with st.sidebar:
+    
+    if "sessions_limit" not in st.session_state:
+        st.session_state.sessions_limit = 10
+
+    if "sessions_offset" not in st.session_state:
+        st.session_state.sessions_offset = 0
 
     st.title("🤖 Upwork Proposal Bot")
 
@@ -145,23 +155,25 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload PDF or TXT Resume",
         type=["pdf", "txt"],
-        key=f"one_time_upload_{st.session_state.upload_counter}"
+        key="one_time_upload"
     )
 
     if uploaded_file:
         st.session_state.resume_mode = "upload"
         st.success("Uploaded resume will be used for next proposal.")
+    else:
+        st.session_state.resume_mode = "auto"
 
-    if st.session_state.resume_mode == "upload":
-        if st.button("❌ Clear Uploaded Resume", use_container_width=True):
+    # if st.session_state.resume_mode == "upload":
+    #     if st.button("❌ Clear Uploaded Resume", use_container_width=True):
 
-            # 🔥 Force new uploader instance
-            st.session_state.upload_counter += 1
+    #         # 🔥 Force new uploader instance
+    #         st.session_state.upload_counter += 1
 
-            # Reset mode
-            st.session_state.resume_mode = "auto"
+    #         # Reset mode
+    #         st.session_state.resume_mode = "auto"
 
-            st.rerun()
+    #         st.rerun()
                 
             
     st.markdown("---")
@@ -202,7 +214,7 @@ with st.sidebar:
             st.warning("Please upload a file first.")
             
             
-    st.markdown("---")
+    st.markdown("---") 
     st.subheader("📊 Sync Reviews + Projects from Google Sheets")
 
     reviews_url = st.text_input("Reviews CSV URL (optional)")
@@ -248,7 +260,13 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("💬 Previous Applications")
 
-    sessions = fetch_sessions()
+    response = fetch_sessions(
+        limit=st.session_state.sessions_limit,
+        offset=0
+    )
+
+    sessions = response.get("sessions", [])
+    total_sessions = response.get("total", 0)
 
     if sessions:
         for session in sessions:
@@ -260,9 +278,15 @@ with st.sidebar:
                 st.session_state.session_id = session["id"]
                 st.session_state.resume_mismatch = None
                 st.rerun()
+
+        # Show More button
+        if st.session_state.sessions_limit < total_sessions:
+            if st.button("Show More", use_container_width=True):
+                st.session_state.sessions_limit += 10
+                st.rerun()
     else:
         st.caption("No previous chats yet.")
-
+        
 # ==============================
 # 💬 Chat Area
 # ==============================

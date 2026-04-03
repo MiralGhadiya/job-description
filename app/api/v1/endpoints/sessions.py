@@ -3,11 +3,11 @@
 Session management endpoints.
 """
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.database import SessionLocal
+from app.database import get_db
 from app.models import ApplicationSession
 from app.core.logging import get_logger
 
@@ -17,19 +17,25 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.get("")
-def list_sessions():
+def list_sessions(
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
     """
-    List all application sessions.
-    
-    Returns:
-        JSON with list of sessions
+    List paginated application sessions.
+    Default: 10 latest sessions
     """
     try:
-        db: Session = SessionLocal()
-        sessions = db.query(ApplicationSession).order_by(
+
+        query = db.query(ApplicationSession).order_by(
             desc(ApplicationSession.created_at)
-        ).all()
-        
+        )
+
+        total_count = query.count()
+
+        sessions = query.offset(offset).limit(limit).all()
+
         result = [
             {
                 "id": s.id,
@@ -38,19 +44,21 @@ def list_sessions():
             }
             for s in sessions
         ]
-        
-        logger.info(f"Listed {len(result)} sessions")
-        db.close()
-        
-        return result
-        
+
+        return {
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "sessions": result
+        }
+
     except Exception as e:
         logger.error(f"Error listing sessions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{session_id}")
-def get_session(session_id: str):
+def get_session(session_id: str, db: Session = Depends(get_db)):
     """
     Get session details.
     
@@ -61,7 +69,6 @@ def get_session(session_id: str):
         JSON with session details
     """
     try:
-        db: Session = SessionLocal()
         session_obj = db.query(ApplicationSession).filter_by(id=session_id).first()
         
         if not session_obj:
@@ -76,7 +83,6 @@ def get_session(session_id: str):
         }
         
         logger.info(f"Retrieved session: {session_id}")
-        db.close()
         
         return result
         

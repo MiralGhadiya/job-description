@@ -1,9 +1,17 @@
 # app/schemas.py
 from pydantic import BaseModel
+from typing import Optional
 
 class UpworkRequest(BaseModel):
     requirement: str
-    projects: str  # later this will come from vector DB
-
+    resume_name: Optional[str] = None
+    
 class UpworkResponse(BaseModel):
     proposal: str
+
+class FollowupRequest(BaseModel):
+    session_id: str
+    question: str
+
+class FollowupResponse(BaseModel):
+    answer: str
